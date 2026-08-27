@@ -1,0 +1,12 @@
+[project]
+name = "pdf-page-sorter"
+version = "0.1.0"
+description = "Split 2-up scanned PDFs and reorder pages in a local browser UI"
+requires-python = ">=3.11"
+dependencies = [
+    "flask",
+    "pillow",
+    "pymupdf",
+    "pypdf",
+    "pytesseract",
+]
