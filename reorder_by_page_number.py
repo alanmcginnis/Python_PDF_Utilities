@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import io
 import re
 import sys
@@ -13,9 +14,7 @@ import pytesseract
 from PIL import Image, ImageEnhance, ImageOps
 from pypdf import PdfReader, PdfWriter
 
-PDF = Path(__file__).parent / "Document_20260804_001_halves.pdf"
-OUT = Path(__file__).parent / "Document_20260804_001_ordered.pdf"
-REPORT = Path(__file__).parent / "page_number_report.txt"
+from paths import PDFS, ensure_pdfs_dir, resolve_pdf
 
 DIGITS_RE = re.compile(r"^\d{1,3}$")
 WRAPPED_RE = re.compile(r"^[~\-—–'\"“”]*\s*(\d{1,3})\s*[~\-—–'\"“”]*$")
@@ -175,9 +174,35 @@ def detect_page_number(img: Image.Image) -> tuple[int | None, str]:
     return None, sample
 
 
+def default_out(src: Path) -> Path:
+    stem = src.stem.removesuffix("_halves")
+    return src.with_name(f"{stem}_ordered.pdf")
+
+
 def main() -> int:
-    doc = fitz.open(str(PDF))
-    reader = PdfReader(str(PDF))
+    ensure_pdfs_dir()
+    parser = argparse.ArgumentParser(
+        description="OCR footer page numbers and rewrite the PDF in numeric order. "
+        f"PDFs are read from / written to {PDFS.name}/ by default."
+    )
+    parser.add_argument(
+        "pdf",
+        help=f"Input PDF filename or path (default folder: {PDFS.name}/)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        help="Output PDF (default: pdfs/<stem>_ordered.pdf)",
+    )
+    args = parser.parse_args()
+
+    pdf = resolve_pdf(args.pdf)
+    out = resolve_pdf(args.output, must_exist=False) if args.output else default_out(pdf)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    report = out.with_name(f"{out.stem}_report.txt")
+
+    doc = fitz.open(str(pdf))
+    reader = PdfReader(str(pdf))
     n_pages = len(doc)
     print(f"Scanning {n_pages} pages for footer numbers...", flush=True)
 
@@ -203,15 +228,15 @@ def main() -> int:
     writer = PdfWriter()
     for i in ordered_indices:
         writer.add_page(reader.pages[i])
-    with open(OUT, "wb") as f:
+    with open(out, "wb") as f:
         writer.write(f)
 
     nums = sorted(by_num)
     missing = [n for n in range(nums[0], nums[-1] + 1) if n not in by_num] if nums else []
 
     lines = [
-        f"source: {PDF.name}",
-        f"output: {OUT.name}",
+        f"source: {pdf.name}",
+        f"output: {out.name}",
         f"total pages: {n_pages}",
         f"numbered: {len(numbered)}",
         f"unnumbered (kept at front, scan order): {unnumbered}",
@@ -229,9 +254,9 @@ def main() -> int:
     for new_pos, i in enumerate(ordered_indices):
         lines.append(f"  out[{new_pos:02d}] <- pdf[{i:02d}]  #{num_lookup[i]}")
 
-    REPORT.write_text("\n".join(lines) + "\n")
-    print(f"\nWrote {len(writer.pages)} pages -> {OUT}", flush=True)
-    print(f"Report -> {REPORT}", flush=True)
+    report.write_text("\n".join(lines) + "\n")
+    print(f"\nWrote {len(writer.pages)} pages -> {out}", flush=True)
+    print(f"Report -> {report}", flush=True)
     if dupes:
         print(f"WARNING duplicates: {dupes}", flush=True)
     if unnumbered:
